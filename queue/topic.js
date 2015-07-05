@@ -2,6 +2,7 @@
  * topic
  */
 var LinkedList = require('linkedlist');
+var _ = require('lodash');
 
 var Line = require('./line');
 
@@ -63,4 +64,94 @@ Topic.prototype.loadLine = function(lineName, lineStoreValue, cb) {
 
         return cb(err, l);
     });
+}
+
+
+Topic.prototype.newLine = function (name, recycle) {
+    var self = this;
+    var inflight = new LinkedList();
+    var imap = {};
+    l = Line();
+    l.name = name;
+    l.head = self.head;
+    l.recycle = recycle;
+    l.recycleKey = self.name + '' + name + KeyLineRecycle;
+    l.inflight = inflight;
+    l.ihead = self.head;
+    l.imap = imap;
+    l.t = self;
+
+    l.exportLine();
+}
+
+func (t *topic) newLine(name string, recycle time.Duration) (*line, error) {
+    inflight := list.New()
+    imap := make(map[uint64]bool)
+    l := new(line)
+    l.name = name
+    l.head = t.head
+    l.recycle = recycle
+    l.recycleKey = t.name + "/" + name + KeyLineRecycle
+    l.inflight = inflight
+    l.ihead = t.head
+    l.imap = imap
+    l.t = t
+
+    // 持久化line
+    err := l.exportLine()
+    if err != nil {
+        return nil, err
+    }
+    // 持久化确认机制
+    err = l.exportRecycle()
+    if err != nil {
+        return nil, err
+    }
+
+    return l, nil
+}
+
+Topic.prototype.createLine = function (name, recycle) {
+    if (_.has(this.lines, name)) {
+        return // error
+    }
+
+    var l = this.newLine()
+}
+/**
+ * new Line
+ * 持久化line
+ */
+func (t *topic) createLine(name string, recycle time.Duration, fromEtcd bool) error {
+    t.linesLock.Lock()
+    defer t.linesLock.Unlock()
+    _, ok := t.lines[name]
+    if ok {
+        return NewError(
+            ErrLineExisted,
+            `topic createLine`,
+        )
+    }
+
+    l, err := t.newLine(name, recycle)
+    if err != nil {
+        return err
+    }
+
+    t.lines[name] = l
+
+    err = t.exportTopic()
+    if err != nil {
+        t.linesLock.Lock()
+        delete(t.lines, name)
+        t.linesLock.Unlock()
+        return err
+    }
+
+    if !fromEtcd {
+        t.q.registerLine(t.name, l.name, l.recycle.String())
+    }
+
+    log.Printf("topic[%s] line[%s:%v] created.", t.name, name, recycle)
+    return nil
 }

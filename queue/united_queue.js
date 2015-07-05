@@ -64,6 +64,16 @@ UnitedQueue.prototype.create = function(key, recycle) {
     }
 
     topicName = parts[0];
+    if (parts.length === 2) {
+        lineName = parts[1];
+
+        // TODO 处理 recycle
+        var t = this.topics[topicName];
+        t.createLine(lineName, recycle)
+
+    } else {
+
+    }
 
 
 }
