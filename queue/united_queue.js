@@ -1,17 +1,3 @@
-// Push(key string, data []byte) error
-// MultiPush(key string, datas [][]byte) error
-// Pop(key string) (string, []byte, error)
-// MultiPop(key string, n int) ([]string, [][]byte, error)
-// Confirm(key string) error
-// MultiConfirm(keys []string) []error
-
-// // admin functions
-// Create(key, recycle string) error
-// Empty(key string) error
-// Remove(key string) error
-// Stat(key string) (*QueueStat, error)
-// Close()
-
 var async = require('async');
 var _ = require('lodash');
 var Topic = require('./topic').Topic;
@@ -42,40 +28,154 @@ function UnitedQueueStore(topics) {
     this.topics = topics || [];
 }
 
-UnitedQueue.prototype.push = function(key, data) {}
 
-UnitedQueue.prototype.pop = function(key) {}
-
-UnitedQueue.prototype.confirm = function(key) {}
-
-UnitedQueue.prototype.create = function(key, recycle) {
+/**
+ * push Data
+ * @param  {[type]} key  [description]
+ * @param  {[type]} data [description]
+ * @return {[type]}      [description]
+ */
+UnitedQueue.prototype.push = function(key, data, cb) {
     key = _.trimLeft(key, '/');
     key = _.trimRight(key, '/');
 
+    if (data.length <= 0)
+        return cb(new Error('ErrBadRequest'));
+
+    var t = this.topics[key];
+    if (!t)
+        return cb(new Error('ErrTopicNotExisted'));
+
+    t.push(data, cb);
+}
+
+
+/**
+ * pop Data
+ * @param  {[type]}   key [description]
+ * @param  {Function} cb  [description]
+ * @return {[type]}       [description]
+ */
+UnitedQueue.prototype.pop = function(key, cb) {
+    key = _.trimLeft(key, '/');
+    key = _.trimRight(key, '/');
+
+    var parts = key.split('/');
+    if (parts.length !== 2) return cb(new Error('ErrBadKey'))
+
+    var topicName = parts[0];
+    var lineName = parts[1];
+
+    var t = this.topics[topicName];
+    if (!t) return cb(new Error('ErrTopicNotExisted'));
+    t.pop(lineName, function(err, id, data) {
+        if (!err) return cb(err);
+
+        return cb(null, key + '/' + id, data);
+    })
+}
+
+UnitedQueue.prototype.confirm = function(key, cb) {
+    key = _.trimLeft(key, '/');
+    key = _.trimRight(key, '/');
+
+    var topicName, lineName;
+    var id;
+
+    var parts = key.split('');
+    if (parts.length !== 3) return cb(new Error('ErrBadKey: ' + key));
+
+    topicName = parts[0];
+    lineName = parts[1];
+    id = parts[2];
+
+    var t = this.topics[topicName];
+    if (!t) return cb(new Error('ErrTopicNotExisted: ' + topicName));
+    t.confirm(lineName, id, cb);
+}
+
+
+/**
+ * 创建一个Topic并持久化它
+ * @param  {[type]}   name [description]
+ * @param  {Function} cb   [description]
+ * @return {[type]}        [description]
+ */
+UnitedQueue.prototype.newTopic = function(name, cb) {
+    var lines = {};
+    var t = Topic();
+    t.name = name;
+    t.lines = lines;
+    t.head = 0;
+    t.headKey = name + KeyTopicHead;
+
+    t.tail = 0
+    t.tailKey = name + KeyTopicTail
+    t.q = this;
+    // t.quit = make(chan bool)
+
+    async.parallel([
+        t.exportHead,
+        t.exportTail
+    ], function(err) {
+        return cb(err, t);
+    });
+}
+
+
+/**
+ * 创建一个Topic，并持久化它
+ * @param  {[type]} name [description]
+ * @return {[type]}      [description]
+ */
+UnitedQueue.prototype.createTopic = function(name, cb) {
+    var self = this;
+    if (_.has(this.topics, name)) {
+        return cb(new Error('ErrTopicExisted'));
+    }
+
+    this.newTopic(name, function(err, t) {
+        if (err) return cb(err);
+
+        self.topics[name] = t;
+        self.exportQueue(function(err) {
+            if (err) {
+                t.remove();
+                delete self.topics[name];
+                return cb(err);
+            }
+
+            return cb();
+        })
+    });
+}
+
+
+/**
+ * Create Topic
+ * @param  {[type]}   key     [description]
+ * @param  {[type]}   recycle [description]
+ * @param  {Function} cb      [description]
+ * @return {[type]}           [description]
+ */
+UnitedQueue.prototype.create = function(key, recycle, cb) {
+    key = _.trimLeft(key, '/');
+    key = _.trimRight(key, '/');
 
     var topicName, lineName;
     var parts = key.split(key, "/")
     if (parts.length < 1 || parts.length > 2) {
-        return;
-        // return NewError(
-        //     ErrBadKey,
-        //     `create key parts error: `+ItoaQuick(len(parts)),
-        // )
+        return cb(new Error('ErrBadKey')); // err ErrBadKey;
     }
 
     topicName = parts[0];
     if (parts.length === 2) {
         lineName = parts[1];
-
-        // TODO 处理 recycle
         var t = this.topics[topicName];
-        t.createLine(lineName, recycle)
-
+        t.createLine(lineName, recycle, cb);
     } else {
-
+        this.createTopic(topicName, cb);
     }
-
-
 }
 
 UnitedQueue.prototype.empty = function(key) {}
@@ -87,23 +187,36 @@ UnitedQueue.prototype.stat = function(key) {}
 UnitedQueue.prototype.close = function() {}
 
 
+/**
+ * 基础方法 setData
+ * @param {[type]}   key  [description]
+ * @param {[type]}   data [description]
+ * @param {Function} cb   [description]
+ */
 UnitedQueue.prototype.setData = function(key, data, cb) {
-    this.store.setData(key, data, function(err, data) {
-        return cb(err, data);
-    })
+    this.store.setData(key, data, cb);
 }
 
 
+/**
+ * 基础方法 getData
+ * @param  {[type]}   key [description]
+ * @param  {Function} cb  [description]
+ * @return {[type]}       [description]
+ */
 UnitedQueue.prototype.getData = function(key, cb) {
-    this.store.get(key, function(err, data) {
-        return cb(err, data);
-    })
+    this.store.get(key, cb);
 }
 
+
+/**
+ * 基础方法 delData
+ * @param  {[type]}   key [description]
+ * @param  {Function} cb  [description]
+ * @return {[type]}       [description]
+ */
 UnitedQueue.prototype.delData = function(key, cb) {
-    this.store.del(key, function(err, data) {
-        return cb(err, data);
-    })
+    this.store.del(key, cb);
 }
 
 
@@ -146,12 +259,12 @@ UnitedQueue.prototype.loadTopic = function(topicName, topicStoreValue, cb) {
         }, function(err, lines) {
             if (err) return cb(err);
 
-            // _.zipObject(['fred', 'barney'], [30, 40]);
             t.lines = _.zipObject(topicStoreValue.lines, lines);
             return cb(null, t);
         });
     });
 }
+
 
 /**
  * Queue 反序列化
@@ -195,6 +308,10 @@ UnitedQueue.prototype.loadQueue = function(cb) {
 }
 
 
+/**
+ * Queue 序列化
+ * @return {[type]} [description]
+ */
 UnitedQueue.prototype.genQueueStore = function() {
     var topics = [];
 
@@ -206,8 +323,9 @@ UnitedQueue.prototype.genQueueStore = function() {
     return qs;
 }
 
+
 /**
- * 持久化（序列化）
+ * Queue 持久化
  * @param  {[type]} argument [description]
  * @return {[type]}          [description]
  */
@@ -216,10 +334,9 @@ UnitedQueue.prototype.exportQueue = function(cb) {
 
     var buffer = JSON.stringify(queueStoreValue);
 
-    this.setData(StorageKeyWord, buffer, function(err) {
-        return cb(err);
-    });
+    this.setData(StorageKeyWord, buffer, cb);
 }
+
 
 function NewUnitedQueue(storage, ip, port) { /*storage store.Storage, ip string, port int*/
     var uq = UnitedQueue(storage, ip, port);

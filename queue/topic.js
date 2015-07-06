@@ -1,8 +1,11 @@
 /**
  * topic
  */
-var LinkedList = require('linkedlist');
+
+var async = require('async');
 var _ = require('lodash');
+var LinkedList = require('linkedlist');
+var numCPUs = require('os').cpus().length;
 
 var Line = require('./line');
 
@@ -24,6 +27,51 @@ function TopicStore(lines) {
 }
 
 module.export.TopicStore = TopicStore;
+
+
+
+/**
+ * getData
+ * @param  {[type]}   id [description]
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.getData = function(id, cb) {
+    var key = this.name + ":" + id;
+    this.q.getData(key, cb)
+}
+
+
+/**
+ * setData
+ * @param {[type]}   id   [description]
+ * @param {[type]}   data [description]
+ * @param {Function} cb   [description]
+ */
+Topic.prototype.setData = function(id, data, cb) {
+    var key = this.name + ':' + id;
+    this.q.setData(key, cb);
+}
+
+
+/**
+ * getHead
+ * @return {[type]} [description]
+ */
+Topic.prototype.getHead = function() {
+    return this.head;
+}
+
+
+/**
+ * getTail
+ * @param  {[type]} argument [description]
+ * @return {[type]}          [description]
+ */
+Topic.prototype.getTail = function(argument) {
+    return this.tail;
+}
+
 
 /**
  * Line 反序列化
@@ -67,7 +115,14 @@ Topic.prototype.loadLine = function(lineName, lineStoreValue, cb) {
 }
 
 
-Topic.prototype.newLine = function (name, recycle) {
+/**
+ * 创建一条Line并持久化它
+ * @param  {[type]}   name    [description]
+ * @param  {[type]}   recycle [description]
+ * @param  {Function} cb      [description]
+ * @return {[type]}           [description]
+ */
+Topic.prototype.newLine = function(name, recycle, cb) {
     var self = this;
     var inflight = new LinkedList();
     var imap = {};
@@ -81,77 +136,236 @@ Topic.prototype.newLine = function (name, recycle) {
     l.imap = imap;
     l.t = self;
 
-    l.exportLine();
+    async.parallel([
+        l.exportLine,
+        l.exportRecycle
+    ], function(err) {
+        return cb(err, l);
+    });
 }
 
-func (t *topic) newLine(name string, recycle time.Duration) (*line, error) {
-    inflight := list.New()
-    imap := make(map[uint64]bool)
-    l := new(line)
-    l.name = name
-    l.head = t.head
-    l.recycle = recycle
-    l.recycleKey = t.name + "/" + name + KeyLineRecycle
-    l.inflight = inflight
-    l.ihead = t.head
-    l.imap = imap
-    l.t = t
 
-    // 持久化line
-    err := l.exportLine()
-    if err != nil {
-        return nil, err
-    }
-    // 持久化确认机制
-    err = l.exportRecycle()
-    if err != nil {
-        return nil, err
-    }
-
-    return l, nil
-}
-
-Topic.prototype.createLine = function (name, recycle) {
-    if (_.has(this.lines, name)) {
-        return // error
-    }
-
-    var l = this.newLine()
-}
 /**
- * new Line
- * 持久化line
+ * 持久化Topic Head
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
  */
-func (t *topic) createLine(name string, recycle time.Duration, fromEtcd bool) error {
-    t.linesLock.Lock()
-    defer t.linesLock.Unlock()
-    _, ok := t.lines[name]
-    if ok {
-        return NewError(
-            ErrLineExisted,
-            `topic createLine`,
-        )
+Topic.prototype.exportHead = function(cb) {
+    var topicHeadData = this.head;
+    this.q.setData(this.headKey, topicHeadData, cb);
+}
+
+
+/**
+ * 删除topic head data
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.removeHeadData = function(cb) {
+    this.q.delData(this.headKey, cb);
+}
+
+
+/**
+ * 持久化Topic tail
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.exportTail = function(cb) {
+    var topicTailData = t.tail;
+
+    this.q.setData(this.tailKey, topicTailData, cb)
+}
+
+
+/**
+ * 删除Topic tail data
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.removeTailData = function(cb) {
+    this.q.delData(this.tailKey, cb);
+}
+
+
+/**
+ * Topic 序列化
+ * @return {[type]} [description]
+ */
+Topic.prototype.genTopicStore = function() {
+    var lines = [];
+    var line;
+    for (var i = 0; i < this.lines.length; i++) {
+        line = this.lines[i];
+        lines[i] = line;
+        i++;
     }
 
-    l, err := t.newLine(name, recycle)
-    if err != nil {
-        return err
+    var ts = TopicStore(lines);
+    return ts;
+}
+
+
+/**
+ * 创建一条Line，并持久化它及Topic
+ * @param  {[type]}   name    [description]
+ * @param  {[type]}   recycle [description]
+ * @param  {Function} cb      [description]
+ * @return {[type]}           [description]
+ */
+Topic.prototype.createLine = function(name, recycle, cb) {
+    if (_.has(this.lines, name)) {
+        return // error ErrLineExisted
     }
 
-    t.lines[name] = l
+    this.newLine(name, recycle, function(err, line) {
+        if (err) return cb(err);
+        this.lines[name] = line;
 
-    err = t.exportTopic()
-    if err != nil {
-        t.linesLock.Lock()
-        delete(t.lines, name)
-        t.linesLock.Unlock()
-        return err
+        this.exportTopic(function(err) {
+            if (err) {
+                delete this.lines[name];
+                reutrn cb(err);
+            }
+            return cb();
+        })
+    })
+}
+
+
+/**
+ * 删除Topic Lines
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.removeLines = function(cb) {
+    var self = this;
+    async.map(this.lines, function(l, cb) {
+        l = self.ines[lineName];
+        delete self.lines[lineName];
+        l.remove(cb);
+    }, cb);
+}
+
+
+/**
+ * Topic 持久化
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.exportTopic = function(cb) {
+    var topicStoreValue = this.genTopicStore();
+
+    var buffer = JSON.stringify(topicStoreValue);
+    this.q.setData(this.name, buffer, cb);
+}
+
+/**
+ * 删除Topic数据
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.removeTopicData = function(cb) {
+    this.q.delData(this.name, cb);
+}
+
+
+/**
+ * 删除持久化的消息
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.removeMsgData = function(cb) {
+    var self = this;
+
+    function worker(key, cb) {
+        self.q.delData(key, function(err) {
+            cb(err, key);
+        });
     }
 
-    if !fromEtcd {
-        t.q.registerLine(t.name, l.name, l.recycle.String())
-    }
+    var concurrency = numCPUs; // 并发度
+    var queue = async.queue(worker, concurrency);
+    queue.drain = cb; // 完工事件的处理
 
-    log.Printf("topic[%s] line[%s:%v] created.", t.name, name, recycle)
-    return nil
+    for (var i = this.head; i < this.tail; i++) {
+        var key = this.name + ':' + i;
+        queue.push(key, function(err, key) {
+            if (err) {
+                // log.Printf("topic[%s] del data[%s] error; %s", t.name, key, err);
+                console.error(err, key);
+            }
+        });
+    }
+}
+
+
+/**
+ * 删除Topic
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.remove = function(cb) {
+    var self = this;
+    async.parallel([
+        self.removeLines,
+        self.removeHeadData,
+        self.removeTailData,
+        self.removeTopicData,
+        self.removeMsgData
+    ], function(err) {
+        return cb && cb(err);
+    });
+}
+
+
+/**
+ * push Data
+ * @param  {[type]}   data [description]
+ * @param  {Function} cb   [description]
+ * @return {[type]}        [description]
+ */
+Topic.prototype.push = function(data, cb) {
+    var self = this;
+    var key = this.name + ':' + this.tail;
+
+    this.q.setData(key, data, function(err) {
+        if (err) return cb(err);
+        self.tail++;
+
+        self.exportTail(function(err) {
+            if (err) {
+                self.tail--;
+                return cb(err);
+            }
+            return cb();
+        })
+    })
+}
+
+
+/**
+ * pop Data
+ * @param  {[type]}   LineName [description]
+ * @param  {Function} cb       [description]
+ * @return {[type]}            [description]
+ */
+Topic.prototype.pop = function(LineName, cb) {
+    var l = this.lines[LineName];
+    if (!l) return cb(new Error('ErrLineNotExisted'));
+    l.pop(cb);
+}
+
+
+/**
+ * [confirm description]
+ * @param  {[type]}   lineName [description]
+ * @param  {[type]}   id       [description]
+ * @param  {Function} cb       [description]
+ * @return {[type]}            [description]
+ */
+Topic.prototype.confirm = function(lineName, id, cb) {
+    var l = this.lines[lineName];
+    if (!l) return cb(new Error('ErrLineNotExisted: ' + lineName));
+    l.confirm(id, cb);
 }
