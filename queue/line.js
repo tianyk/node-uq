@@ -5,6 +5,7 @@ var LinkedList = require('linkedlist');
 var _ = require('lodash');
 
 var InflightMessage = require('./message').InflightMessage;
+var QueueStat = require('./stat').QueueStat;
 
 function Line() {
     if (!(this instanceof Line)) return new Line();
@@ -75,7 +76,7 @@ Line.prototype.exportLine = function(cb) {
     var lineStoreValue = this.genLineStore();
 
     var buffer = JSON.stringify(lineStoreValue);
-    var lineStoreKey = this.t.name + "/" + this.name;
+    var lineStoreKey = this.t.name + '/' + this.name;
 
     this.t.q.setData(lineStoreKey, buffer, cb);
 }
@@ -96,6 +97,7 @@ Line.prototype.remove = function(cb) {
 
 /**
  * pop Data
+ * 每pop一次，line.head + 1,
  * @param  {Function} cb [description]
  * @return {[type]}      [description]
  */
@@ -132,7 +134,7 @@ Line.prototype.pop = function(cb) {
     var tId = this.head;
 
     var topicTail = this.t.getTail();
-    if (this.tail >= topicTail) return cb(new Error('ErrNone'));
+    if (this.head >= topicTail) return cb(new Error('ErrNone'));
 
     this.t.getData(tId, function(err, data) {
         if (err) return cb(err);
@@ -148,6 +150,11 @@ Line.prototype.pop = function(cb) {
     })
 }
 
+
+/**
+ * [updateiHead description]
+ * @return {[type]} [description]
+ */
 Line.prototype.updateiHead = function() {
     var id;
     var fl;
@@ -165,6 +172,12 @@ Line.prototype.updateiHead = function() {
 }
 
 
+/**
+ * [confirm description]
+ * @param  {[type]}   id [description]
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
 Line.prototype.confirm = function(id, cb) {
     if (l.recycle === 0) return cb(new Error('ErrNotDelivered'));
 
@@ -187,4 +200,37 @@ Line.prototype.confirm = function(id, cb) {
     }
 
     return cb(new Error('ErrNotDelivered'));
+}
+
+
+/**
+ * line.head === t.tail时。pop时再pop不到新元素
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Line.prototype.empty = function (cb) {
+    this.inflight = new LinkedList();
+    this.imap = {};
+    this.ihead = this.t.getTail();
+
+    this.head = this.t.getTail();
+
+    this.exportLine(cb);
+}
+
+
+Line.prototype.stat = function () {
+    var qs = new QueueStat();
+
+    qs.name = this.t.name + '/' + this.name;
+    qs.type = 'line';
+    qs.recycle = this.recycle;
+    qs.ihead = this.ihead;
+    var inflightLen = this.inflight.length; // 未确认的
+    qs.head = this.head;
+    qs.tail = this.tail;
+    qs.inflightLen = inflightLen;
+    qs.count = inflightLen + qs.tail - qs.head;
+
+    return qs;
 }

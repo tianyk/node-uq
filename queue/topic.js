@@ -86,7 +86,7 @@ Topic.prototype.loadLine = function(lineName, lineStoreValue, cb) {
     var l = Line();
     l.t = this;
     l.name = lineName;
-    l.recycleKey = this.name + "/" + lineName + KeyLineRecycle;
+    l.recycleKey = this.name + '/' + lineName + KeyLineRecycle;
 
     this.q.getData(l.recycleKey, function(err, lineRecycleData) {
         if (err) return cb(err);
@@ -130,7 +130,7 @@ Topic.prototype.newLine = function(name, recycle, cb) {
     l.name = name;
     l.head = self.head;
     l.recycle = recycle;
-    l.recycleKey = self.name + '' + name + KeyLineRecycle;
+    l.recycleKey = self.name + '/' + name + KeyLineRecycle;
     l.inflight = inflight;
     l.ihead = self.head;
     l.imap = imap;
@@ -235,10 +235,11 @@ Topic.prototype.createLine = function(name, recycle, cb) {
 
 /**
  * 删除Topic Lines
- * @param  {Function} cb [description]
- * @return {[type]}      [description]
+ * @param  {[type]}   lineName [description]
+ * @param  {Function} cb       [description]
+ * @return {[type]}            [description]
  */
-Topic.prototype.removeLines = function(cb) {
+Topic.prototype.removeLines = function(lineName, cb) {
     var self = this;
     async.map(this.lines, function(l, cb) {
         l = self.ines[lineName];
@@ -368,4 +369,48 @@ Topic.prototype.confirm = function(lineName, id, cb) {
     var l = this.lines[lineName];
     if (!l) return cb(new Error('ErrLineNotExisted: ' + lineName));
     l.confirm(id, cb);
+}
+
+
+/**
+ * 清空一个line
+ * @param  {[type]}   lineName [description]
+ * @param  {Function} cb       [description]
+ * @return {[type]}            [description]
+ */
+Topic.prototype.emptyLine = function(lineName, cb) {
+    var l = this.lines[lineName];
+    if (!l) return cb(new Error('ErrLineNotExisted'));
+    l.empty(cb);
+}
+
+
+/**
+ * [empty description]
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.empty = function(cb) {
+    async.map(this.lines, function (l, cb) {
+        l.empty(cb);
+    }, function (err) {
+        if (err) return cb(err);
+
+        // 重置head
+        this.head = this.tail;
+        this.exportHead(cb);
+    })
+}
+
+
+/**
+ * Line Stat
+ * @param  {[type]}   lineName [description]
+ * @param  {Function} cb       [description]
+ * @return {[type]}            [description]
+ */
+Topic.prototype.statLine = function (lineName, cb) {
+    var l = this.lines[lineName];
+    if (!l) throw new Error('ErrLineNotExisted: ' + lineName);
+    return l.stat();
 }

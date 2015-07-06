@@ -23,6 +23,7 @@ function UnitedQueue(storage, ip, port) {
     this.port = port;
 }
 
+
 function UnitedQueueStore(topics) {
     if (!(this instanceof UnitedQueueStore)) return new UnitedQueueStore(topics);
     this.topics = topics || [];
@@ -75,6 +76,13 @@ UnitedQueue.prototype.pop = function(key, cb) {
     })
 }
 
+
+/**
+ * [confirm description]
+ * @param  {[type]}   key [description]
+ * @param  {Function} cb  [description]
+ * @return {[type]}       [description]
+ */
 UnitedQueue.prototype.confirm = function(key, cb) {
     key = _.trimLeft(key, '/');
     key = _.trimRight(key, '/');
@@ -82,7 +90,7 @@ UnitedQueue.prototype.confirm = function(key, cb) {
     var topicName, lineName;
     var id;
 
-    var parts = key.split('');
+    var parts = key.split('/');
     if (parts.length !== 3) return cb(new Error('ErrBadKey: ' + key));
 
     topicName = parts[0];
@@ -163,7 +171,7 @@ UnitedQueue.prototype.create = function(key, recycle, cb) {
     key = _.trimRight(key, '/');
 
     var topicName, lineName;
-    var parts = key.split(key, "/")
+    var parts = key.split(key, '/');
     if (parts.length < 1 || parts.length > 2) {
         return cb(new Error('ErrBadKey')); // err ErrBadKey;
     }
@@ -178,11 +186,136 @@ UnitedQueue.prototype.create = function(key, recycle, cb) {
     }
 }
 
-UnitedQueue.prototype.empty = function(key) {}
 
-UnitedQueue.prototype.remove = function(key) {}
+/**
+ * 清空一个topic或者line
+ * @param  {[type]} key [description]
+ * @return {[type]}     [description]
+ */
+UnitedQueue.prototype.empty = function(key) {
+    key = _.trimLeft(key, '/');
+    key = _.trimRight(key, '/');
 
-UnitedQueue.prototype.stat = function(key) {}
+    var topicName, lineName;
+    var parts = key.split(key, '/');
+    if (parts.length < 1 || parts.length > 2) {
+        return cb(new Error('ErrBadKey')); // err ErrBadKey;
+    }
+
+    topicName = parts[0];
+    if (topicName.trim().length === 0) return cb(new Error('ErrBadKey'));
+
+    var t = this.topics[topicName];
+    if (!t) return cb(new Error('ErrTopicNotExisted: ' + topicName));
+
+    if (parts.length === 2) {
+        lineName = parts[1];
+        return t.emptyLine(lineName, cb);
+    }
+
+    return t.empty(cb);
+}
+
+
+func(u * UnitedQueue) removeTopic(name string, fromEtcd bool) error {
+    u.topicsLock.Lock()
+    defer u.topicsLock.Unlock()
+
+    t, ok: = u.topics[name]
+    if !ok {
+        return NewError(
+            ErrTopicNotExisted,
+            `queue remove`,
+        )
+    }
+
+    delete(u.topics, name)
+    err: = u.exportQueue()
+    if err != nil {
+        u.topics[name] = t
+        return err
+    }
+
+    if !fromEtcd {
+        u.unRegisterTopic(name)
+    }
+
+    return t.remove()
+}
+
+UnitedQueue.prototype.removeTopic = function(topicName) {
+    var self = this;
+    var t = this.topics[topicName];
+    if (!t) return cb(new Error('ErrTopicNotExisted'));
+    delete this.topics[topicName];
+
+    this.exportQueue(function(err) {
+        if (err) {
+            self.lines[topicName] = t;
+            return cb(err);
+        }
+        return t.remove(cb);
+    })
+}
+
+
+/**
+ * 删除Topic或者Line
+ * @param  {[type]}   key [description]
+ * @param  {Function} cb  [description]
+ * @return {[type]}       [description]
+ */
+UnitedQueue.prototype.remove = function(key, cb) {
+    key = _.trimLeft(key, '/');
+    key = _.trimRight(key, '/');
+
+    var topicName, lineName;
+    var parts = key.split(key, '/');
+    if (parts.length < 1 || parts.length > 2) {
+        return cb(new Error('ErrBadKey')); // err ErrBadKey;
+    }
+
+    topicName = parts[0];
+    if (topicName.trim().length === 0) return cb(new Error('ErrBadKey'));
+
+    if (parts.length === 1) {
+        return this.removeTopic(topicName, cb);
+    }
+
+    var t = this.topics[topicName];
+    if (!t) return cb(new Error('ErrTopicNotExisted'));
+    lineName = parts[1];
+    return t.removeLine(lineName, cb);
+}
+
+
+/**
+ * 同步方法，需要catch异常
+ * @param  {[type]} key [description]
+ * @return {[type]}     [description]
+ */
+UnitedQueue.prototype.stat = function(key) {
+    key = _.trimLeft(key, '/');
+    key = _.trimRight(key, '/');
+
+    var topicName, lineName;
+    var parts = key.split(key, '/');
+    if (parts.length < 1 || parts.length > 2)
+        throw new Error('ErrBadKey'); // err ErrBadKey;
+
+
+    topicName = parts[0];
+    if (topicName.trim().length === 0) throw new Error('ErrBadKey');
+
+    var t = this.topics[topicName];
+    if (!t) throw new Error('ErrTopicNotExisted');
+    if parts.length === 2 {
+        lineName = parts[1];
+        return t.statLine(lineName);
+    }
+
+    return t.stat();
+}
 
 UnitedQueue.prototype.close = function() {}
 
