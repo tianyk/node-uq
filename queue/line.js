@@ -89,8 +89,12 @@ Line.prototype.exportLine = function(cb) {
  */
 Line.prototype.remove = function(cb) {
     async.parallel([
-        l.removeLineData,
-        l.removeRecycleData
+        function(cb) {
+            l.removeLineData(cb);
+        },
+        function(cb) {
+            l.removeRecycleData(cb);
+        }
     ], cb);
 }
 
@@ -208,7 +212,7 @@ Line.prototype.confirm = function(id, cb) {
  * @param  {Function} cb [description]
  * @return {[type]}      [description]
  */
-Line.prototype.empty = function (cb) {
+Line.prototype.empty = function(cb) {
     this.inflight = new LinkedList();
     this.imap = {};
     this.ihead = this.t.getTail();
@@ -219,7 +223,7 @@ Line.prototype.empty = function (cb) {
 }
 
 
-Line.prototype.stat = function () {
+Line.prototype.stat = function() {
     var qs = new QueueStat();
 
     qs.name = this.t.name + '/' + this.name;

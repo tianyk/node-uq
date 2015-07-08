@@ -123,8 +123,12 @@ UnitedQueue.prototype.newTopic = function(name, cb) {
     // t.quit = make(chan bool)
 
     async.parallel([
-        t.exportHead,
-        t.exportTail
+        function(cb) {
+            t.exportHead(cb);
+        },
+        function(cb) {
+            t.exportTail(cb);
+        }
     ], function(err) {
         return cb(err, t);
     });
@@ -217,32 +221,11 @@ UnitedQueue.prototype.empty = function(key) {
 }
 
 
-func(u * UnitedQueue) removeTopic(name string, fromEtcd bool) error {
-    u.topicsLock.Lock()
-    defer u.topicsLock.Unlock()
-
-    t, ok: = u.topics[name]
-    if !ok {
-        return NewError(
-            ErrTopicNotExisted,
-            `queue remove`,
-        )
-    }
-
-    delete(u.topics, name)
-    err: = u.exportQueue()
-    if err != nil {
-        u.topics[name] = t
-        return err
-    }
-
-    if !fromEtcd {
-        u.unRegisterTopic(name)
-    }
-
-    return t.remove()
-}
-
+/**
+ * Remove Topic
+ * @param  {[type]} topicName [description]
+ * @return {[type]}           [description]
+ */
 UnitedQueue.prototype.removeTopic = function(topicName) {
     var self = this;
     var t = this.topics[topicName];

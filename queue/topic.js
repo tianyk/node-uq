@@ -137,8 +137,12 @@ Topic.prototype.newLine = function(name, recycle, cb) {
     l.t = self;
 
     async.parallel([
-        l.exportLine,
-        l.exportRecycle
+        function(cb) {
+            l.exportLine(cb);
+        },
+        function(cb) {
+            l.exportRecycle(cb)
+        }
     ], function(err) {
         return cb(err, l);
     });
@@ -309,11 +313,21 @@ Topic.prototype.removeMsgData = function(cb) {
 Topic.prototype.remove = function(cb) {
     var self = this;
     async.parallel([
-        self.removeLines,
-        self.removeHeadData,
-        self.removeTailData,
-        self.removeTopicData,
-        self.removeMsgData
+        function(cb) {
+            self.removeLines(cb);
+        },
+        function(cb) {
+            self.removeHeadData(cb);
+        },
+        function(cb) {
+            self.removeTailData(cb);
+        },
+        function(cb) {
+            self.removeTopicData(cb);
+        },
+        function(cb) {
+            self.removeMsgData(cb)
+        }
     ], function(err) {
         return cb && cb(err);
     });
@@ -391,9 +405,9 @@ Topic.prototype.emptyLine = function(lineName, cb) {
  * @return {[type]}      [description]
  */
 Topic.prototype.empty = function(cb) {
-    async.map(this.lines, function (l, cb) {
+    async.map(this.lines, function(l, cb) {
         l.empty(cb);
-    }, function (err) {
+    }, function(err) {
         if (err) return cb(err);
 
         // 重置head
@@ -409,7 +423,7 @@ Topic.prototype.empty = function(cb) {
  * @param  {Function} cb       [description]
  * @return {[type]}            [description]
  */
-Topic.prototype.statLine = function (lineName, cb) {
+Topic.prototype.statLine = function(lineName, cb) {
     var l = this.lines[lineName];
     if (!l) throw new Error('ErrLineNotExisted: ' + lineName);
     return l.stat();
