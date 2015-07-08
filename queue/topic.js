@@ -8,6 +8,7 @@ var LinkedList = require('linkedlist');
 var numCPUs = require('os').cpus().length;
 
 var Line = require('./line');
+var QueueStat = require('./stat').QueueStat;
 
 var KeyLineRecycle = ":recycle";
 
@@ -420,11 +421,44 @@ Topic.prototype.empty = function(cb) {
 /**
  * Line Stat
  * @param  {[type]}   lineName [description]
- * @param  {Function} cb       [description]
  * @return {[type]}            [description]
  */
-Topic.prototype.statLine = function(lineName, cb) {
+Topic.prototype.statLine = function(lineName) {
     var l = this.lines[lineName];
     if (!l) throw new Error('ErrLineNotExisted: ' + lineName);
     return l.stat();
 }
+
+
+/**
+ * Topic Stat
+ * @return {[type]} [description]
+ */
+Topic.prototype.stat = function() {
+    var qs = new QueueStat();
+    qs.name = this.name;
+    qs.type = 'topic';
+
+    qs.head = this.head;
+    qs.tail = this.tail;
+    qs.count = this.tail - this.head;
+
+    qs.lines = [];
+    _.values(this.lines).forEach(function (l) {
+        qs.lines.push(l.stat());
+    })
+
+    return qs;
+}
+
+
+/**
+ * Close Topic
+ * @param  {Function} cb [description]
+ * @return {[type]}      [description]
+ */
+Topic.prototype.close = function() {
+    // 换成基于事件的
+    t.quit = true;
+}
+

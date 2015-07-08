@@ -31,7 +31,7 @@ function UnitedQueueStore(topics) {
 
 
 /**
- * push Data
+ * PUSH Data
  * @param  {[type]} key  [description]
  * @param  {[type]} data [description]
  * @return {[type]}      [description]
@@ -52,7 +52,7 @@ UnitedQueue.prototype.push = function(key, data, cb) {
 
 
 /**
- * pop Data
+ * POP Data
  * @param  {[type]}   key [description]
  * @param  {Function} cb  [description]
  * @return {[type]}       [description]
@@ -78,7 +78,7 @@ UnitedQueue.prototype.pop = function(key, cb) {
 
 
 /**
- * [confirm description]
+ * CONFIRM
  * @param  {[type]}   key [description]
  * @param  {Function} cb  [description]
  * @return {[type]}       [description]
@@ -105,6 +105,7 @@ UnitedQueue.prototype.confirm = function(key, cb) {
 
 /**
  * 创建一个Topic并持久化它
+ *
  * @param  {[type]}   name [description]
  * @param  {Function} cb   [description]
  * @return {[type]}        [description]
@@ -137,6 +138,7 @@ UnitedQueue.prototype.newTopic = function(name, cb) {
 
 /**
  * 创建一个Topic，并持久化它
+ *
  * @param  {[type]} name [description]
  * @return {[type]}      [description]
  */
@@ -165,6 +167,7 @@ UnitedQueue.prototype.createTopic = function(name, cb) {
 
 /**
  * Create Topic
+ *
  * @param  {[type]}   key     [description]
  * @param  {[type]}   recycle [description]
  * @param  {Function} cb      [description]
@@ -193,6 +196,7 @@ UnitedQueue.prototype.create = function(key, recycle, cb) {
 
 /**
  * 清空一个topic或者line
+ *
  * @param  {[type]} key [description]
  * @return {[type]}     [description]
  */
@@ -223,6 +227,7 @@ UnitedQueue.prototype.empty = function(key) {
 
 /**
  * Remove Topic
+ *
  * @param  {[type]} topicName [description]
  * @return {[type]}           [description]
  */
@@ -244,6 +249,7 @@ UnitedQueue.prototype.removeTopic = function(topicName) {
 
 /**
  * 删除Topic或者Line
+ *
  * @param  {[type]}   key [description]
  * @param  {Function} cb  [description]
  * @return {[type]}       [description]
@@ -274,6 +280,7 @@ UnitedQueue.prototype.remove = function(key, cb) {
 
 /**
  * 同步方法，需要catch异常
+ *
  * @param  {[type]} key [description]
  * @return {[type]}     [description]
  */
@@ -300,11 +307,28 @@ UnitedQueue.prototype.stat = function(key) {
     return t.stat();
 }
 
-UnitedQueue.prototype.close = function() {}
+
+/**
+ * Close
+ * @return {[type]} [description]
+ */
+UnitedQueue.prototype.close = function() {
+    var self = this;
+    _.values(this.topics).forEach(function(t) {
+        t.close();
+    })
+
+    this.exportTopics(function(err) {
+        if (err) console.error(err);
+        self.storage.close();
+        console.log('uq stoped');
+    });
+}
 
 
 /**
  * 基础方法 setData
+ *
  * @param {[type]}   key  [description]
  * @param {[type]}   data [description]
  * @param {Function} cb   [description]
@@ -316,6 +340,7 @@ UnitedQueue.prototype.setData = function(key, data, cb) {
 
 /**
  * 基础方法 getData
+ *
  * @param  {[type]}   key [description]
  * @param  {Function} cb  [description]
  * @return {[type]}       [description]
@@ -327,6 +352,7 @@ UnitedQueue.prototype.getData = function(key, cb) {
 
 /**
  * 基础方法 delData
+ *
  * @param  {[type]}   key [description]
  * @param  {Function} cb  [description]
  * @return {[type]}       [description]
@@ -338,6 +364,7 @@ UnitedQueue.prototype.delData = function(key, cb) {
 
 /**
  * Topic 反序列化
+ *
  * @param  {[type]}   topicName       [description]
  * @param  {[type]}   topicStoreValue [description]
  * @param  {Function} cb              [description]
@@ -383,7 +410,21 @@ UnitedQueue.prototype.loadTopic = function(topicName, topicStoreValue, cb) {
 
 
 /**
+ * topic持久化
+ *
+ * @return {[type]} [description]
+ */
+UnitedQueue.prototype.exportTopics = function(cb) {
+    var self = this;
+    async.map(_.keys(this.topics), function(topicName, cb) {
+        var t = self.topics[topicName];
+        t.exportTopic(cb);
+    }, cb);
+}
+
+/**
  * Queue 反序列化
+ *
  * @param  {Function} cb [description]
  * @return {[type]}      [description]
  */
@@ -426,14 +467,11 @@ UnitedQueue.prototype.loadQueue = function(cb) {
 
 /**
  * Queue 序列化
+ *
  * @return {[type]} [description]
  */
 UnitedQueue.prototype.genQueueStore = function() {
-    var topics = [];
-
-    for (var topicName in this.topics) {
-        topics[i] = topicName;
-    }
+    var topics = _.keys(this.topicName);
 
     var qs = UnitedQueueStore(topics);
     return qs;
@@ -442,6 +480,7 @@ UnitedQueue.prototype.genQueueStore = function() {
 
 /**
  * Queue 持久化
+ *
  * @param  {[type]} argument [description]
  * @return {[type]}          [description]
  */
@@ -454,10 +493,16 @@ UnitedQueue.prototype.exportQueue = function(cb) {
 }
 
 
+/**
+ * [NewUnitedQueue description]
+ * @param {[type]} storage [description]
+ * @param {[type]} ip      [description]
+ * @param {[type]} port    [description]
+ */
 function NewUnitedQueue(storage, ip, port) { /*storage store.Storage, ip string, port int*/
     var uq = UnitedQueue(storage, ip, port);
     uq.topics = {};
-    uq.storage = storage
+    uq.storage = storage;
 
     uq.loadQueue(function(err) {
         return cb(err, uq);
